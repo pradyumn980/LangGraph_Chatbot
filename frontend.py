@@ -1,10 +1,7 @@
 import streamlit as st
-# with st.chat_message('user:'):
-#     st.text('Hi')
-    
-# with st.chat_message('assistant'):
-#     st.text('Hello! How can I assist you today?')
-    
+from chatbot_backend import graph
+from langchain_core.messages import HumanMessage
+
 user_input = st.chat_input("You: ", key="input")
 
 
@@ -21,6 +18,11 @@ if user_input:
     with st.chat_message('user'):
         st.text(user_input)
     
-    st.session_state['message_history'].append({"role": "assistant", "content": user_input})
+    
+    response=graph.invoke({'messages': [HumanMessage(content=user_input)]})
+    ai_message=response['messages'][-1].content
+    
+    
+    st.session_state['message_history'].append({"role": "assistant", "content": ai_message})
     with st.chat_message('assistant'):
-        st.text(user_input)
+        st.text(ai_message)
