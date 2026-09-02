@@ -2,7 +2,6 @@ import streamlit as st
 from chatbot_backend import graph
 from langchain_core.messages import HumanMessage
 
-
 # Page configuration
 st.set_page_config(
     page_title="LangGraph Chatbot",
@@ -62,7 +61,6 @@ if user_input:
         )
 
         ai_message = response["messages"][-1].content
-
 
         # Display AI response
         st.session_state.message_history.append({
