@@ -18,11 +18,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 load_dotenv()
 
-
-# ==========================================
-# HuggingFace Authentication
-# ==========================================
-
 hf_token = os.getenv("HF_TOKEN")
 
 if not hf_token:
@@ -32,7 +27,7 @@ login(token=hf_token)
 
 
 # ==========================================
-# Load HuggingFace Model
+# HuggingFace Model
 # ==========================================
 
 llm = HuggingFaceEndpoint(
@@ -45,7 +40,7 @@ model = ChatHuggingFace(llm=llm)
 
 
 # ==========================================
-# Define State
+# State
 # ==========================================
 
 class State(TypedDict):
@@ -55,19 +50,17 @@ class State(TypedDict):
     ]
 
 
-# =======================================
-# Define Node
-# =======================================
+# ==========================================
+# Node
+# ==========================================
 
 def computation(state: State):
-    """Process messages through the LLM."""
 
     try:
+
         messages = state["messages"]
 
-        response = None
-        for chunk in model.stream(messages):
-            response = chunk if response is None else response + chunk
+        response = model.invoke(messages)
 
         return {
             "messages": [response]
@@ -107,7 +100,7 @@ graph_builder.add_edge(
 
 
 # ==========================================
-# Add Memory / Persistence
+# Memory
 # ==========================================
 
 checkpointer = InMemorySaver()
