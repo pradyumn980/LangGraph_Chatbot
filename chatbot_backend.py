@@ -65,7 +65,9 @@ def computation(state: State):
     try:
         messages = state["messages"]
 
-        response = model.invoke(messages)
+        response = None
+        for chunk in model.stream(messages):
+            response = chunk if response is None else response + chunk
 
         return {
             "messages": [response]

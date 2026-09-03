@@ -31,8 +31,6 @@ user_input = st.chat_input("Ask me anything...")
 
 
 if user_input:
-
-    # Display user message
     st.session_state.message_history.append({
         "role": "user",
         "content": user_input
@@ -41,36 +39,33 @@ if user_input:
     with st.chat_message("user"):
         st.write(user_input)
 
-
-    # Call LangGraph
     config = {
         "configurable": {
             "thread_id": st.session_state.thread_id
         }
     }
 
-    try:
-
-        response = graph.invoke(
+    def stream_response():
+        for message_chunk, _metadata in graph.stream(
             {
                 "messages": [
                     HumanMessage(content=user_input)
                 ]
             },
-            config
-        )
+            config,
+            stream_mode="messages"
+        ):
+            if message_chunk.content:
+                yield message_chunk.content
 
-        ai_message = response["messages"][-1].content
+    try:
+        with st.chat_message("assistant"):
+            ai_message = st.write_stream(stream_response())
 
-        # Display AI response
         st.session_state.message_history.append({
             "role": "assistant",
             "content": ai_message
         })
 
-        with st.chat_message("assistant"):
-            st.write(ai_message)
-
     except Exception as e:
-
         st.error(f"Error: {e}")
