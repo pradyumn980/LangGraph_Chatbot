@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import TypedDict, Annotated
 
 from dotenv import load_dotenv
@@ -10,6 +11,17 @@ from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
+
+
+# ==========================================
+# Logging configuration
+# ==========================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -55,10 +67,12 @@ class State(TypedDict):
 # ==========================================
 
 def computation(state: State):
-
+    """
+    Process incoming messages and generate AI response.
+    """
     try:
-
         messages = state["messages"]
+        logger.info(f"Processing {len(messages)} message(s)")
 
         response = model.invoke(messages)
 
@@ -66,12 +80,33 @@ def computation(state: State):
             "messages": [response]
         }
 
-    except Exception as e:
-
+    except ValueError as e:
+        # Handle validation errors (e.g., invalid input)
+        logger.error(f"Validation error: {e}")
         return {
             "messages": [
                 AIMessage(
-                    content=f"Error: {str(e)}"
+                    content=f"I couldn't process your request due to invalid input. Please try again."
+                )
+            ]
+        }
+    except ConnectionError as e:
+        # Handle network/API connectivity issues
+        logger.error(f"Connection error: {e}")
+        return {
+            "messages": [
+                AIMessage(
+                    content="I'm having trouble connecting to the AI service. Please check your internet connection and try again."
+                )
+            ]
+        }
+    except Exception as e:
+        # Catch-all for unexpected errors
+        logger.exception(f"Unexpected error in computation: {e}")
+        return {
+            "messages": [
+                AIMessage(
+                    content="I encountered an unexpected error. Please try again later."
                 )
             ]
         }
