@@ -35,7 +35,13 @@ hf_token = os.getenv("HF_TOKEN")
 if not hf_token:
     raise ValueError("HF_TOKEN not found in .env file")
 
-login(token=hf_token)
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = hf_token
+os.environ["HF_TOKEN"] = hf_token
+
+try:
+    login(token=hf_token)
+except Exception as login_err:
+    logger.warning(f"HuggingFace login warning: {login_err}")
 
 
 # ==========================================
@@ -45,7 +51,8 @@ login(token=hf_token)
 llm = HuggingFaceEndpoint(
     repo_id="meta-llama/Llama-3.1-8B-Instruct",
     max_new_tokens=512,
-    temperature=0.7
+    temperature=0.7,
+    huggingfacehub_api_token=hf_token
 )
 
 model = ChatHuggingFace(llm=llm)

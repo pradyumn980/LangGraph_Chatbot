@@ -111,7 +111,8 @@ if user_input:
         )
 
         # Extract AI message content safely
-        ai_message = _extract_content(response["messages"][-1].content)
+        last_msg = response["messages"][-1] if isinstance(response, dict) and "messages" in response and response["messages"] else response
+        ai_message = _extract_content(getattr(last_msg, "content", last_msg))
 
         # Show AI response
         with st.chat_message("assistant"):
@@ -125,3 +126,5 @@ if user_input:
 
     except Exception as e:
         handle_api_error(e, "LangGraph invoke")
+        if st.session_state.message_history and st.session_state.message_history[-1]["role"] == "user":
+            st.session_state.message_history.pop()

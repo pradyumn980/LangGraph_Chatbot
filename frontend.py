@@ -22,6 +22,11 @@ st.title("🤖 LangGraph Chatbot")
 # Initialize session state and get shared variables
 message_history, thread_id = initialize_session_state()
 
+# Load thread history if message history is empty
+if not message_history:
+    loaded_history = load_thread_history(thread_id, graph)
+    if loaded_history:
+        message_history.extend(loaded_history)
 
 # Display previous messages
 display_message_history(message_history)
@@ -60,21 +65,25 @@ if user_input:
                 config,
                 stream_mode="messages"
             ):
-                if message_chunk.content:
-                    full_response += _extract_content(message_chunk.content)
+                extracted = _extract_content(getattr(message_chunk, "content", message_chunk))
+                if extracted:
+                    if extracted.startswith(full_response) and len(extracted) > len(full_response):
+                        full_response = extracted
+                    elif not full_response.endswith(extracted):
+                        full_response += extracted
                     response_placeholder.write(full_response + "▌")
 
             # Final write without cursor
             response_placeholder.write(full_response)
 
         # Append AI message to history
-        message_history.append({
-            "role": "assistant",
-            "content": full_response
-        })
+        if full_response:
+            message_history.append({
+                "role": "assistant",
+                "content": full_response
+            })
 
     except Exception as e:
         handle_api_error(e, "frontend streaming")
-        # Optional: remove the last (failed) user message
-        # if message_history and message_history[-1]["role"] == "user":
-        #     message_history.pop()
+        if message_history and message_history[-1]["role"] == "user":
+            message_history.pop()
