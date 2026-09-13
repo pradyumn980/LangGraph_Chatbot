@@ -111,25 +111,95 @@ def initialize_session_state():
     Initialize common session state variables.
     Returns: tuple of (message_history, thread_id)
     """
-    if "message_history" not in st.session_state:
-        st.session_state.message_history = []
+    if "threads" not in st.session_state:
+        st.session_state.threads = ["chat_1"]
 
     if "thread_id" not in st.session_state:
-        import uuid
-        st.session_state.thread_id = f"streamlit-{uuid.uuid4().hex[:8]}"
+        st.session_state.thread_id = "chat_1"
+
+    if "message_history" not in st.session_state:
+        st.session_state.message_history = []
 
     return st.session_state.message_history, st.session_state.thread_id
 
 
-def create_thread_config(thread_id):
+import os
+
+
+def create_thread_config(thread_id, tags=None, metadata=None):
     """
-    Create configuration dictionary for LangGraph with the specified thread_id.
+    Create configuration dictionary for LangGraph with thread_id, tracing tags, and metadata.
     """
-    return {
+    config = {
         "configurable": {
             "thread_id": thread_id
-        }
+        },
+        "tags": tags or ["streamlit", "langgraph-chatbot"],
+        "metadata": metadata or {"thread_id": thread_id, "application": "LangGraph_Chatbot"}
     }
+    return config
+
+
+def render_thread_sidebar(graph):
+    """
+    Render thread management sidebar and return current active thread_id.
+    """
+    st.sidebar.title("💬 My Conversations")
+
+    # New Chat
+    if st.sidebar.button("➕ New Chat", use_container_width=True):
+        new_thread = f"chat_{len(st.session_state.threads) + 1}"
+        st.session_state.threads.append(new_thread)
+        st.session_state.thread_id = new_thread
+        st.session_state.message_history = []
+        st.rerun()
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Threads")
+
+    # Existing thread selector
+    for thread in st.session_state.threads:
+        is_active = (thread == st.session_state.thread_id)
+        label = f"▶ {thread}" if is_active else f"💬 {thread}"
+        if st.sidebar.button(label, key=f"btn_{thread}", use_container_width=True):
+            st.session_state.thread_id = thread
+            st.session_state.message_history = load_thread_history(thread, graph)
+            st.rerun()
+
+    st.sidebar.markdown("---")
+
+    # Display Observability Sidebar
+    display_observability_sidebar(
+        thread_id=st.session_state.thread_id,
+        message_history=st.session_state.message_history,
+        last_latency=st.session_state.get("last_latency")
+    )
+
+    return st.session_state.thread_id
+
+
+def display_observability_sidebar(thread_id=None, message_history=None, last_latency=None):
+    """
+    Render Observability sidebar widget showing tracing status, project, and latency metrics.
+    """
+    tracing_enabled = os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true"
+    project_name = os.getenv("LANGCHAIN_PROJECT", "langgraph-chatbot")
+
+    with st.sidebar.expander("📊 Observability & Metrics", expanded=True):
+        if tracing_enabled:
+            st.markdown(f"**LangSmith Status:** 🟢 `Active`")
+            st.markdown(f"**Project:** `{project_name}`")
+        else:
+            st.markdown(f"**LangSmith Status:** ⚪ `Inactive`")
+
+        if thread_id:
+            st.markdown(f"**Active Thread:** `{thread_id}`")
+
+        if message_history is not None:
+            st.markdown(f"**Total Messages:** `{len(message_history)}`")
+
+        if last_latency is not None:
+            st.markdown(f"**Last Latency:** `{last_latency:.2f}s`")
 
 
 def handle_api_error(error, context=""):

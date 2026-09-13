@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from typing import TypedDict, Annotated
 
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # ==========================================
-# Load environment variables
+# Load environment variables & Observability
 # ==========================================
 
 load_dotenv()
@@ -42,6 +43,15 @@ try:
     login(token=hf_token)
 except Exception as login_err:
     logger.warning(f"HuggingFace login warning: {login_err}")
+
+# Log Observability / LangSmith configuration status
+tracing_enabled = os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true"
+project_name = os.getenv("LANGCHAIN_PROJECT", "default")
+
+if tracing_enabled:
+    logger.info(f"📊 LangSmith Observability ENABLED (Project: '{project_name}')")
+else:
+    logger.info("ℹ️ LangSmith Observability DISABLED")
 
 
 # ==========================================
@@ -75,13 +85,17 @@ class State(TypedDict):
 
 def computation(state: State):
     """
-    Process incoming messages and generate AI response.
+    Process incoming messages and generate AI response with telemetry metrics.
     """
+    start_time = time.perf_counter()
     try:
         messages = state["messages"]
-        logger.info(f"Processing {len(messages)} message(s)")
+        logger.info(f"[Computation Node] Processing {len(messages)} message(s)...")
 
         response = model.invoke(messages)
+
+        elapsed = time.perf_counter() - start_time
+        logger.info(f"[Computation Node] Success in {elapsed:.2f}s | Response length: {len(str(response.content))} chars")
 
         return {
             "messages": [response]

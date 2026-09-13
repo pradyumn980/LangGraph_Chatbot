@@ -1,3 +1,4 @@
+import time
 import streamlit as st
 from chatbot_backend import graph
 from langchain_core.messages import HumanMessage
@@ -5,7 +6,9 @@ from shared_components import (
     _extract_content,
     load_thread_history,
     display_message_history,
+    initialize_session_state,
     create_thread_config,
+    render_thread_sidebar,
     handle_api_error
 )
 
@@ -22,53 +25,18 @@ st.set_page_config(
 st.title("🤖 LangGraph Chatbot")
 
 
-# =========================================================
-# Session State
-# =========================================================
+# Initialize session state and get shared variables
+message_history, thread_id = initialize_session_state()
 
-if "threads" not in st.session_state:
-    st.session_state.threads = ["chat_1"]
+# Render Multi-Thread Sidebar & Observability Dashboard
+thread_id = render_thread_sidebar(graph)
 
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = "chat_1"
-
-if "message_history" not in st.session_state:
-    st.session_state.message_history = load_thread_history(
-        st.session_state.thread_id,
-        graph
-    )
-
-
-# =========================================================
-# Sidebar
-# =========================================================
-
-st.sidebar.title("💬 My Conversations")
-
-
-# New Chat
-if st.sidebar.button("➕ New Chat"):
-    new_thread = f"chat_{len(st.session_state.threads) + 1}"
-
-    st.session_state.threads.append(new_thread)
-    st.session_state.thread_id = new_thread
-    st.session_state.message_history = []
-
-    st.rerun()
-
-
-st.sidebar.header("Conversations")
-
-
-# Existing threads
-for thread in st.session_state.threads:
-    if st.sidebar.button(
-        thread,
-        key=f"button_{thread}"
-    ):
-        st.session_state.thread_id = thread
-        st.session_state.message_history = load_thread_history(thread, graph)
-        st.rerun()
+# Load thread history from LangGraph checkpointer if message history is empty
+if not message_history:
+    loaded_history = load_thread_history(thread_id, graph)
+    if loaded_history:
+        message_history.extend(loaded_history)
+        st.session_state.message_history = message_history
 
 
 # =========================================================
@@ -86,45 +54,55 @@ user_input = st.chat_input("Ask me anything...")
 
 
 if user_input:
-    # Show user message
-    with st.chat_message("user"):
-        st.write(user_input)
-
     # Add user message to UI history
     st.session_state.message_history.append({
         "role": "user",
         "content": user_input
     })
 
-    # Thread configuration
-    config = create_thread_config(st.session_state.thread_id)
+    with st.chat_message("user"):
+        st.write(user_input)
 
-    # Call LangGraph
+    # Thread configuration with observability metadata
+    config = create_thread_config(st.session_state.thread_id, tags=["thread-stream", "streamlit"])
+
+    start_time = time.perf_counter()
+
+    # Stream response token by token
     try:
-        response = graph.invoke(
-            {
-                "messages": [
-                    HumanMessage(content=user_input)
-                ]
-            },
-            config=config
-        )
-
-        # Extract AI message content safely
-        last_msg = response["messages"][-1] if isinstance(response, dict) and "messages" in response and response["messages"] else response
-        ai_message = _extract_content(getattr(last_msg, "content", last_msg))
-
-        # Show AI response
         with st.chat_message("assistant"):
-            st.write(ai_message)
+            response_placeholder = st.empty()
+            full_response = ""
 
-        # Save AI message to UI history
-        st.session_state.message_history.append({
-            "role": "assistant",
-            "content": ai_message
-        })
+            for message_chunk, _metadata in graph.stream(
+                {
+                    "messages": [
+                        HumanMessage(content=user_input)
+                    ]
+                },
+                config,
+                stream_mode="messages"
+            ):
+                extracted = _extract_content(getattr(message_chunk, "content", message_chunk))
+                if extracted:
+                    if extracted.startswith(full_response) and len(extracted) > len(full_response):
+                        full_response = extracted
+                    elif not full_response.endswith(extracted):
+                        full_response += extracted
+                    response_placeholder.write(full_response + "▌")
+
+            response_placeholder.write(full_response)
+
+        elapsed = time.perf_counter() - start_time
+        st.session_state.last_latency = elapsed
+
+        if full_response:
+            st.session_state.message_history.append({
+                "role": "assistant",
+                "content": full_response
+            })
 
     except Exception as e:
-        handle_api_error(e, "LangGraph invoke")
+        handle_api_error(e, "LangGraph stream")
         if st.session_state.message_history and st.session_state.message_history[-1]["role"] == "user":
             st.session_state.message_history.pop()
