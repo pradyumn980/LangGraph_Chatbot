@@ -12,7 +12,7 @@ from shared_components import (
 )
 from langchain_core.messages import HumanMessage
 
-# Page configuration
+# Page configuration fixed
 st.set_page_config(
     page_title="LangGraph Chatbot",
     page_icon="🤖"
