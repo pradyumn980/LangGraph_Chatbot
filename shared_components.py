@@ -100,10 +100,17 @@ def load_thread_history(thread_id, graph):
 def display_message_history(message_history):
     """
     Display the chat message history using Streamlit chat components.
+    Handles user, assistant, and tool activity messages.
     """
     for message in message_history:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
+        role = message.get("role", "assistant")
+        content = message.get("content", "")
+        if role == "tool":
+            with st.expander(f"🛠️ Tool Call: {message.get('name', 'Tool')}", expanded=False):
+                st.code(content)
+        else:
+            with st.chat_message(role):
+                st.write(content)
 
 
 def initialize_session_state():
@@ -140,7 +147,7 @@ def create_thread_config(thread_id, tags=None, metadata=None):
     return config
 
 
-def render_thread_sidebar(graph):
+def render_thread_sidebar(graph, available_tools=None):
     """
     Render thread management sidebar and return current active thread_id.
     """
@@ -167,6 +174,16 @@ def render_thread_sidebar(graph):
             st.rerun()
 
     st.sidebar.markdown("---")
+
+    # Active Tools Panel
+    if available_tools:
+        with st.sidebar.expander("🛠️ Active Tools", expanded=False):
+            for t in available_tools:
+                tool_name = getattr(t, "name", str(t))
+                tool_desc = getattr(t, "description", "")
+                st.markdown(f"**`{tool_name}`**")
+                if tool_desc:
+                    st.caption(tool_desc)
 
     # Display Observability Sidebar
     display_observability_sidebar(

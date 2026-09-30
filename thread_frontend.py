@@ -1,7 +1,7 @@
 import time
 import streamlit as st
-from chatbot_backend import graph
-from langchain_core.messages import HumanMessage
+from chatbot_backend import graph, tools
+from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from shared_components import (
     _extract_content,
     load_thread_history,
@@ -28,8 +28,8 @@ st.title("🤖 LangGraph Chatbot")
 # Initialize session state and get shared variables
 message_history, thread_id = initialize_session_state()
 
-# Render Multi-Thread Sidebar & Observability Dashboard
-thread_id = render_thread_sidebar(graph)
+# Render Multi-Thread Sidebar & Observability Dashboard with Active Tools list
+thread_id = render_thread_sidebar(graph, available_tools=tools)
 
 # Load thread history from LangGraph checkpointer if message history is empty
 if not message_history:
@@ -68,30 +68,41 @@ if user_input:
 
     start_time = time.perf_counter()
 
-    # Stream response token by token
     try:
         with st.chat_message("assistant"):
+            status_container = st.empty()
             response_placeholder = st.empty()
             full_response = ""
 
-            for message_chunk, _metadata in graph.stream(
+            for event in graph.stream(
                 {
                     "messages": [
                         HumanMessage(content=user_input)
                     ]
                 },
                 config,
-                stream_mode="messages"
+                stream_mode="updates"
             ):
-                extracted = _extract_content(getattr(message_chunk, "content", message_chunk))
-                if extracted:
-                    if extracted.startswith(full_response) and len(extracted) > len(full_response):
-                        full_response = extracted
-                    elif not full_response.endswith(extracted):
-                        full_response += extracted
-                    response_placeholder.write(full_response + "▌")
+                for node_name, node_output in event.items():
+                    messages = node_output.get("messages", [])
+                    for msg in messages:
+                        if isinstance(msg, AIMessage):
+                            tool_calls = getattr(msg, "tool_calls", [])
+                            if tool_calls:
+                                tool_names = ", ".join([tc.get("name", "tool") for tc in tool_calls])
+                                status_container.info(f"⚙️ Calling tool(s): `{tool_names}`...")
+                            elif msg.content:
+                                text = _extract_content(msg.content)
+                                if text:
+                                    full_response = text
+                                    response_placeholder.markdown(full_response)
+                        elif isinstance(msg, ToolMessage):
+                            tool_name = getattr(msg, "name", "tool")
+                            status_container.success(f"✅ Executed tool `{tool_name}`")
 
-            response_placeholder.write(full_response)
+            status_container.empty()
+            if full_response:
+                response_placeholder.markdown(full_response)
 
         elapsed = time.perf_counter() - start_time
         st.session_state.last_latency = elapsed
@@ -103,6 +114,6 @@ if user_input:
             })
 
     except Exception as e:
-        handle_api_error(e, "LangGraph stream")
+        handle_api_error(e, "thread frontend execution")
         if st.session_state.message_history and st.session_state.message_history[-1]["role"] == "user":
             st.session_state.message_history.pop()
