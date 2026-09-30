@@ -27,7 +27,7 @@ message_history, thread_id = initialize_session_state()
 # Render Multi-Thread Sidebar & Observability Dashboard
 thread_id = render_thread_sidebar(graph)
 
-# Load thread history from LangGraph checkpointer if message history is empty
+# Loading thread history from LangGraph checkpointer if message history is empty 
 if not message_history:
     loaded_history = load_thread_history(thread_id, graph)
     if loaded_history:
