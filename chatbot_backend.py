@@ -7,19 +7,23 @@ import datetime
 import urllib.request
 import urllib.parse
 import re
+import asyncio
+import concurrent.futures
 from typing import TypedDict, Annotated
 
 from dotenv import load_dotenv
 from huggingface_hub import login
 
 from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
-from langchain_core.tools import tool
+from langchain_core.tools import tool, StructuredTool
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import ToolNode, tools_condition
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 
 # ==========================================
@@ -63,7 +67,7 @@ else:
 
 
 # ==========================================
-# Tools Definition
+# Native Tools Definition
 # ==========================================
 
 @tool
@@ -122,7 +126,101 @@ def search_wikipedia(query: str) -> str:
         return f"Wikipedia search error: {e}"
 
 
-tools = [calculate, get_current_time, search_wikipedia]
+# ==========================================
+# MCP (Model Context Protocol) Integration
+# ==========================================
+
+def load_mcp_servers_config(config_path: str = "mcp_config.json") -> dict:
+    """
+    Load MCP servers configuration from JSON file or return default sequential-thinking config.
+    """
+    default_config = {
+        "sequential-thinking": {
+            "command": "npx.cmd" if os.name == "nt" else "npx",
+            "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+            "transport": "stdio"
+        }
+    }
+
+    if not os.path.exists(config_path):
+        return default_config
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        servers = cfg.get("mcpServers", {})
+        adapted = {}
+        for name, srv in servers.items():
+            cmd = srv.get("command", "")
+            if os.name == "nt" and cmd == "npx":
+                cmd = "npx.cmd"
+            adapted[name] = {
+                "command": cmd,
+                "args": srv.get("args", []),
+                "transport": srv.get("transport", "stdio"),
+                **({"env": srv["env"]} if "env" in srv else {})
+            }
+        return adapted or default_config
+    except Exception as err:
+        logger.warning(f"Could not parse {config_path}: {err}. Using default sequential-thinking server.")
+        return default_config
+
+
+async def _async_fetch_mcp_tools(server_config: dict):
+    client = MultiServerMCPClient(server_config)
+    raw_tools = await client.get_tools()
+    wrapped_tools = []
+
+    for raw in raw_tools:
+        def sync_fn(r=raw, **kwargs):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    return pool.submit(lambda: asyncio.run(r.ainvoke(kwargs))).result()
+            return asyncio.run(r.ainvoke(kwargs))
+
+        wrapped = StructuredTool(
+            name=raw.name,
+            description=raw.description,
+            args_schema=raw.args_schema,
+            func=sync_fn,
+            coroutine=raw.ainvoke
+        )
+        wrapped_tools.append(wrapped)
+
+    return wrapped_tools
+
+
+def load_mcp_tools(config_path: str = "mcp_config.json") -> list:
+    """
+    Load tools from configured MCP servers synchronously.
+    """
+    server_config = load_mcp_servers_config(config_path)
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                loaded = pool.submit(lambda: asyncio.run(_async_fetch_mcp_tools(server_config))).result()
+        else:
+            loaded = asyncio.run(_async_fetch_mcp_tools(server_config))
+
+        logger.info(f"Loaded {len(loaded)} tool(s) from MCP servers: {[t.name for t in loaded]}")
+        return loaded
+    except Exception as err:
+        logger.error(f"Failed to load MCP tools: {err}")
+        return []
+
+
+# Assemble all tools: Native + MCP Server Tools
+mcp_tools = load_mcp_tools()
+tools = [calculate, get_current_time, search_wikipedia] + mcp_tools
 
 
 # ==========================================
