@@ -175,6 +175,48 @@ def render_thread_sidebar(graph, available_tools=None):
 
     st.sidebar.markdown("---")
 
+    # Document Upload & RAG Knowledge Base Panel
+    with st.sidebar.expander("📚 Knowledge Base (RAG)", expanded=True):
+        from rag_service import ingest_document, get_ingested_files_info, clear_rag_store
+
+        uploaded_files = st.file_uploader(
+            "Upload documents (PDF, TXT, MD):",
+            type=["pdf", "txt", "md", "csv"],
+            accept_multiple_files=True,
+            key="rag_file_uploader"
+        )
+
+        if uploaded_files:
+            if "processed_files" not in st.session_state:
+                st.session_state.processed_files = set()
+
+            for f in uploaded_files:
+                if f.name not in st.session_state.processed_files:
+                    with st.spinner(f"Indexing '{f.name}'..."):
+                        try:
+                            content_bytes = f.read()
+                            num_chunks = ingest_document(content_bytes, f.name)
+                            st.session_state.processed_files.add(f.name)
+                            st.success(f"Indexed **{f.name}** ({num_chunks} chunks)")
+                        except Exception as e:
+                            st.error(f"Error indexing {f.name}: {e}")
+
+        # List currently indexed files
+        ingested = get_ingested_files_info()
+        if ingested:
+            st.markdown(f"**Indexed Documents ({len(ingested)}):**")
+            for item in ingested:
+                st.caption(f"📄 {item['filename']} ({item['chunks']} chunks)")
+            if st.button("🗑️ Clear Documents", use_container_width=True):
+                clear_rag_store()
+                if "processed_files" in st.session_state:
+                    st.session_state.processed_files.clear()
+                st.rerun()
+        else:
+            st.caption("No documents loaded yet.")
+
+    st.sidebar.markdown("---")
+
     # Active Tools Panel
     if available_tools:
         with st.sidebar.expander("🛠️ Active Tools", expanded=False):

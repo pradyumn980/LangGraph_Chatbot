@@ -23,8 +23,6 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from langchain_mcp_adapters.client import MultiServerMCPClient
-
 
 # ==========================================
 # Logging configuration
@@ -168,6 +166,12 @@ def load_mcp_servers_config(config_path: str = "mcp_config.json") -> dict:
 
 
 async def _async_fetch_mcp_tools(server_config: dict):
+    try:
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+    except Exception as import_err:
+        logger.warning(f"Could not load MCP adapter: {import_err}")
+        return []
+
     client = MultiServerMCPClient(server_config)
     raw_tools = await client.get_tools()
     wrapped_tools = []
@@ -218,9 +222,11 @@ def load_mcp_tools(config_path: str = "mcp_config.json") -> list:
         return []
 
 
-# Assemble all tools: Native + MCP Server Tools
+from rag_service import query_knowledge_base
+
+# Assemble all tools: Native + RAG Knowledge Base + MCP Server Tools
 mcp_tools = load_mcp_tools()
-tools = [calculate, get_current_time, search_wikipedia] + mcp_tools
+tools = [query_knowledge_base, calculate, get_current_time, search_wikipedia] + mcp_tools
 
 
 # ==========================================
